@@ -1,0 +1,103 @@
+#!/usr/bin/env python3
+#
+# This program uses 'pdfsplit' to split a pdf in even chunks
+# with the size of 'n'. It uses pdftk, as cpdf is commercial
+#
+
+import argparse
+import sys
+import os
+import os.path
+import yaml
+import subprocess
+from typing import Union
+
+parser = argparse.ArgumentParser(
+    description="pdfsplitter. Autosplit pdfs in chunks using pdftk.", epilog="Made by Florian Sihler")
+
+parser.add_argument('-c', '--chunksize', dest='chunksize',
+                    default=90, type=int, metavar='N',
+                    help='Maximum number of pages in each chunk')
+
+parser.add_argument('-n', '--name', dest='name',
+                    default='part_{i}_{basename}.pdf', type=str,
+                    help='Name of the output file. {i} is the chunk number, {basename} the basename of the file, {file} the old file name.')
+
+parser.add_argument('-o', '--out-dir', dest='out_dir',
+                    default='.', type=str)
+
+parser.add_argument('-f', '--force-create', dest='force_create',
+                    action='store_true',
+                    help='"Split" the pdf even if all pages fit into one chunk.')
+
+parser.add_argument('file', help='The file to split.',
+                    type=str)
+
+if (len(sys.argv) <= 1):
+    parser.parse_args(['-h'])
+
+args = parser.parse_args()
+
+# Check for invalid arguments
+
+if args.chunksize <= 0:
+    print('Chunksize "{c}" is not valid'.format(c=args.chunksize))
+    exit(1)
+
+if not args.out_dir.strip():
+    print('The out-directory "{o}" isn\'t valid'.format(o=args.out_dir))
+    exit(2)
+
+if not args.name.strip():
+    print('The name "{o}" isn\'t valid'.format(o=args.name))
+    exit(3)
+
+if not os.path.isdir(args.out_dir):
+    print('Out-Directory doesn\'t exist. Creating...')
+    os.makedirs(args.out_dir, exist_ok=True)
+
+# Determine the real pdf sizes
+page_count: int = yaml.safe_load(
+    subprocess.check_output(["pdfinfo", args.file]))['Pages']
+
+if page_count <= args.chunksize:
+    print('Pdf fits into one chunk. Skipping (use -f to force)')
+    if not args.force_create:
+        exit(0)
+
+def get_target_filename(i: int) -> str:
+    return args.name.format(
+        i=i, file=args.file, basename=os.path.splitext(args.file)[0]
+    )
+
+
+def produce_chunk(i: int, start: int, end: Union[int, str]):
+    command = 'pdftk {file} cat {start}-{end} output {output}'.format(
+        file=args.file, start=start, end=end,
+        output=os.path.join(
+            args.out_dir,
+            get_target_filename(i)
+        )
+    )
+    print('    Executing:', command)
+    os.system(command)
+
+
+previous = 1
+next_i = 0
+for i, n in enumerate(range(args.chunksize, page_count, args.chunksize)):
+    print(
+        'Creating chunk {i} with pages: {previous} to {n}'.format(**locals()))
+    produce_chunk(i, previous, n)
+    previous = n + 1  # to avoid duplicate pages
+    next_i = i + 1
+
+if previous <= page_count:
+    print(
+        'Last chunk covers page(s): {previous} to {page_count}'.format(**locals()))
+    produce_chunk(next_i, previous, 'end')
+else:
+    print('No last chunk.')
+
+print('Finished')
+exit(0)
