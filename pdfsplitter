@@ -30,7 +30,8 @@ parser.add_argument('-n', '--name', dest='name',
                     help='Name of the output file. {i} is the chunk number, {basename} the basename of the file, {file} the old file name.')
 
 parser.add_argument('-o', '--out-dir', dest='out_dir',
-                    default='.', type=str)
+                    default='.', type=str, metavar='DIR',
+                    help='Output folder, {file} expands to the file, {n} to the worker-id (incrementing) and {basename} expands to the file without the extension.')
 
 parser.add_argument('-f', '--force-create', dest='force_create',
                     action='store_true',
@@ -61,7 +62,7 @@ if not args.name.strip():
 
 def get_target_filename(file: str, i: int) -> str:
     return args.name.format(
-        i=i, file=file, basename=os.path.splitext(file)[0]
+        i=i, file=file, basename=os.path.basename(os.path.splitext(file)[0])
     )
 
 
@@ -76,7 +77,7 @@ def format_command(command: str, idx: int, i: int, out_dir: str, file: str, star
             args.out_dir,
             get_target_filename(file, i)
         ),
-        basename=os.path.splitext(file)[0]
+        basename=os.path.basename(os.path.splitext(file)[0])
     )
 
 def produce_chunk(idx: int, i: int, out_dir: str, file: str, start: int, end: Union[int, str]):
@@ -93,7 +94,7 @@ def produce_chunk(idx: int, i: int, out_dir: str, file: str, start: int, end: Un
 def process_file(idx: int, file: str):
     out_dir = args.out_dir.format(
         file=file,
-        basename=os.path.splitext(file)[0],
+        basename=os.path.basename(os.path.splitext(file)[0]),
         n=idx
     )
 
