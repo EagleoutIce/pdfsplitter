@@ -58,14 +58,10 @@ if not args.name.strip():
     print('The name "{o}" isn\'t valid'.format(o=args.name))
     exit(3)
 
-if not os.path.isdir(args.out_dir):
-    print('Out-Directory doesn\'t exist. Creating...')
-    os.makedirs(args.out_dir, exist_ok=True)
-
 
 def get_target_filename(file: str, i: int) -> str:
     return args.name.format(
-        i=i, file=file, basename=os.path.splitext(args.file)[0]
+        i=i, file=file, basename=os.path.splitext(file)[0]
     )
 
 
@@ -73,26 +69,45 @@ def print_idx(idx: int, *objects, sep=' ', end='\n', pre='', file=sys.stdout, fl
     print(pre, "[ID " + str(idx) + "]", *objects,
           sep=sep, end=end, file=file, flush=flush)
 
-
-def produce_chunk(idx: int, i: int, file: str, start: int, end: Union[int, str]):
-    command = 'pdftk {file} cat {start}-{end} output {output}'.format(
-        file=args.file, start=start, end=end,
+def format_command(command: str, idx: int, i: int, out_dir: str, file: str, start: int, end: Union[int, str]) -> str:
+    return command.format(
+        file=file, start=start, end=end,
         output=os.path.join(
             args.out_dir,
-            get_target_filename(i, file)
-        )
+            get_target_filename(file, i)
+        ),
+        basename=os.path.splitext(file)[0]
     )
+
+def produce_chunk(idx: int, i: int, out_dir: str, file: str, start: int, end: Union[int, str]):
+    command = format_command('pdftk {file} cat {start}-{end} output {output}', idx, i, out_dir, file, start, end)
+
+    # allow multiple expansion
+    for i in range(0, 2):
+        command = format_command(command, idx, i, out_dir, file, start, end)
+
     print_idx(idx, '    Executing:', command)
     os.system(command)
 
 
 def process_file(idx: int, file: str):
+    out_dir = args.out_dir.format(
+        file=file,
+        basename=os.path.splitext(file)[0],
+        n=idx
+    )
+
+    if not os.path.isdir(out_dir):
+        print('Out-Directory', out_dir, 'doesn\'t exist. Creating...')
+        os.makedirs(out_dir, exist_ok=True)
+
     # Determine the real pdf sizes
     page_count: int = yaml.safe_load(
         subprocess.check_output(["pdfinfo", file]))['Pages']
 
     if page_count <= args.chunksize:
-        print_idx(idx, 'Pdf fits into one chunk. Skipping (use -f to force)')
+        print_idx(idx, 'Pdf fits', file,
+                  'into one chunk. Skipping (use -f to force)')
         if not args.force_create:
             return
 
@@ -101,14 +116,14 @@ def process_file(idx: int, file: str):
     for i, n in enumerate(range(args.chunksize, page_count, args.chunksize)):
         print_idx(idx,
                   'Creating chunk {i} with pages: {previous} to {n}'.format(**locals()))
-        produce_chunk(idx, i, file, previous, n)
+        produce_chunk(idx, i, out_dir, file, previous, n)
         previous = n + 1  # to avoid duplicate pages
         next_i = i + 1
 
     if previous <= page_count:
         print_idx(idx,
                   'Last chunk covers page(s): {previous} to {page_count}'.format(**locals()))
-        produce_chunk(idx, next_i, file, previous, 'end')
+        produce_chunk(idx, next_i, out_dir, file, previous, 'end')
     else:
         print_idx(idx, 'No last chunk.')
 
@@ -119,8 +134,9 @@ with futures.ThreadPoolExecutor(max_workers=args.threads) as pool:
         runners.append(pool.submit(process_file, idx, file))
     futures.wait(runners)
     for idx, runner in enumerate(runners):
-        if runner.result() is not None:
-            print_idx(idx, runner.result())
+        result = runner.result()
+        if result is not None:
+            print_idx(idx, result)
 
 print('Finished')
 exit(0)
